@@ -48,11 +48,11 @@ class WinRunner(Runner):
 
         for root, dirs, files in os.walk(start_dir):
             cdbs = [os.path.join(root, f) for f in files
-                    if 'cdb.exe' == f.lower()
+                    if 'cdb'==f.lower()[:3] and '.exe'==f.lower()[-4:]
                     ]
-            cdbs = [path for path in cdbs
-                    if machine_type in path.lower()
-                    ]
+            #cdbs = [path for path in cdbs
+            #        if machine_type in path.lower()
+            #        ]
             for path in cdbs:
                 print(path)
             results += cdbs
@@ -163,7 +163,9 @@ class WinRunner(Runner):
             cls.info('cdb.exe not found, searching for it..')
             cbds = cls.search_cdb('C:\\')
             if cbds:
-                errors.append(f'However cdb.exe can be found here: {", ".join(cbds)}')
+                errors.append(f'Potential cdb.exe or similar file can be found here: {", ".join(cbds)}')
+            else:
+                cls.info('No potential cdb.exe replacement was found')
 
         procdump_exe = cls.find_procdump()
         if not procdump_exe:
