@@ -32,7 +32,7 @@ class WinRunner(Runner):
         self.procdump_exe = os.path.abspath(self.procdump_exe)
 
     @classmethod
-    def search_cdb(start_dir: str, machine_type: str = None) -> List[str]:
+    def search_cdb(cls, start_dir: str, machine_type: str = None) -> List[str]:
         """
         Find cdb.exe suitable for current platform
         """
@@ -160,6 +160,7 @@ class WinRunner(Runner):
         cdb_exe = cls.find_cdb()
         if not cdb_exe:
             errors.append('cdb.exe not found')
+            cls.info('cdb.exe not found, searching for it..')
             cbds = cls.search_cdb('C:\\')
             if cbds:
                 errors.append(f'However cdb.exe can be found here: {", ".join(cbds)}')
