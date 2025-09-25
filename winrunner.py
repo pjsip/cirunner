@@ -162,7 +162,7 @@ class WinRunner(Runner):
             errors.append('cdb.exe not found')
             cbds = cls.search_cdb('C:\\')
             if cbds:
-                errors.append(f'However cdb.exe can be found here: {"\n".join(cbds)}')
+                errors.append(f'However cdb.exe can be found here: {", ".join(cbds)}')
 
         procdump_exe = cls.find_procdump()
         if not procdump_exe:
