@@ -1,6 +1,7 @@
 import datetime
 import glob
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -31,6 +32,37 @@ class WinRunner(Runner):
         self.procdump_exe = os.path.abspath(self.procdump_exe)
 
     @classmethod
+    def search_cdb(start_dir: str, machine_type: str = None) -> List[str]:
+        """
+        Find cdb.exe suitable for current platform
+        """
+        results = []
+        ndirs = 0
+
+        if not machine_type:
+            machine_type = platform.machine()
+            if machine_type == 'AMD64' or machine_type == 'x86_64':
+                machine_type = 'x64'
+            else:
+                machine_type = 'x86'
+
+        for root, dirs, files in os.walk(start_dir):
+            cdbs = [os.path.join(root, f) for f in files
+                    if 'cdb.exe' == f.lower()
+                    ]
+            cdbs = [path for path in cdbs
+                    if machine_type in path.lower()
+                    ]
+            for path in cdbs:
+                print(path)
+            results += cdbs
+            ndirs += 1
+
+        #print(f'Walked {ndirs} directories and found {len(results)} result(s)')
+        return results
+
+
+    @classmethod
     def find_cdb(cls) -> str:
         """
         Find cdb.exe (console debugger).
@@ -46,6 +78,7 @@ class WinRunner(Runner):
         for path in CDB_PATHS:
             if os.path.exists(path):
                 return path
+            
         return None
 
     @classmethod
@@ -127,6 +160,9 @@ class WinRunner(Runner):
         cdb_exe = cls.find_cdb()
         if not cdb_exe:
             errors.append('cdb.exe not found')
+            cbds = cls.search_cdb('C:\\')
+            if cbds:
+                errors.append(f'However cdb.exe can be found here: {"\n".join(cbds)}')
 
         procdump_exe = cls.find_procdump()
         if not procdump_exe:
