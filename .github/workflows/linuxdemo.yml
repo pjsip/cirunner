@@ -1,6 +1,7 @@
 name: Linux Demo
 on:
   push
+  workflow_dispatch
 jobs:
   success-case:
     runs-on: ubuntu-latest
