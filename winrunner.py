@@ -32,14 +32,14 @@ class WinRunner(Runner):
         self.procdump_exe = os.path.abspath(self.procdump_exe)
 
     @classmethod
-    def search_cdb(cls, start_dir: str, machine_type: str = None) -> List[str]:
+    def search_cdb(cls, start_dir: str, filter_machine_type = False) -> List[str]:
         """
         Find cdb.exe suitable for current platform
         """
         results = []
         ndirs = 0
 
-        if not machine_type:
+        if filter_machine_type:
             machine_type = platform.machine()
             if machine_type == 'AMD64' or machine_type == 'x86_64':
                 machine_type = 'x64'
@@ -50,9 +50,10 @@ class WinRunner(Runner):
             cdbs = [os.path.join(root, f) for f in files
                     if 'cdb'==f.lower()[:3] and '.exe'==f.lower()[-4:]
                     ]
-            #cdbs = [path for path in cdbs
-            #        if machine_type in path.lower()
-            #        ]
+            if filter_machine_type:
+                cdbs = [path for path in cdbs
+                        if machine_type in path.lower()
+                        ]
             for path in cdbs:
                 print(path)
             results += cdbs
@@ -155,18 +156,18 @@ class WinRunner(Runner):
 
         winreg.CloseKey(ld)
 
-        # Check cdb.exe and procdump.exe
+        # Check cdb.exe and install if necessary
         errors = []
         cdb_exe = cls.find_cdb()
         if not cdb_exe:
-            errors.append('cdb.exe not found')
-            cls.info('cdb.exe not found, searching for it..')
-            cbds = cls.search_cdb('C:\\')
-            if cbds:
-                errors.append(f'Potential cdb.exe or similar file can be found here: {", ".join(cbds)}')
-            else:
-                cls.info('No potential cdb.exe replacement was found')
+            cls.info('Installing cdb..')
+            os.system('choco install windows-sdk-10-version-2004-windbg --yes --no-progress')
 
+            cdb_exe = cls.find_cdb()
+            if not cdb_exe:
+                errors.append('cdb.exe not found')
+
+        # Check procdump
         procdump_exe = cls.find_procdump()
         if not procdump_exe:
             cls.info('Downloading procdump.zip..')
