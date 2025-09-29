@@ -143,7 +143,10 @@ class WinRunner(Runner):
             val, type = '', None
         if val.lower() != DUMP_FOLDER.lower() or type != winreg.REG_EXPAND_SZ:
             winreg.SetValueEx(ld, 'DumpFolder', None, winreg.REG_EXPAND_SZ, DUMP_FOLDER)
-            cls.info(f'Registry "DumpFolder" set to {DUMP_FOLDER}')
+            #cls.info(f'Registry "DumpFolder" set to {DUMP_FOLDER}')
+
+        val, _ = winreg.QueryValueEx(ld, 'DumpFolder')
+        cls.info(f'Registry "DumpFolder" is "{val}"')
 
         try:
             val, type = winreg.QueryValueEx(ld, 'DumpType')
@@ -152,8 +155,10 @@ class WinRunner(Runner):
         MINIDUMP = 1
         if val!=MINIDUMP or type!=winreg.REG_DWORD:
             winreg.SetValueEx(ld, 'DumpType', None, winreg.REG_DWORD, MINIDUMP)
-            cls.info(f'Registry "DumpType" set to {MINIDUMP}')
+            #cls.info(f'Registry "DumpType" set to {MINIDUMP}')
 
+        val, _ = winreg.QueryValueEx(ld, 'DumpType')
+        cls.info(f'Registry "DumpType" is {val}')
         winreg.CloseKey(ld)
 
         # Check cdb.exe and install if necessary
