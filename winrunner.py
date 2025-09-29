@@ -128,12 +128,29 @@ class WinRunner(Runner):
         return cls.dump_path
 
     @classmethod
+    def list_dump_dirs(cls) -> List[str]:
+        """
+        List directories where dump file is potentially stored.
+        """
+        dirs = [
+            cls.get_dump_dir(),
+            os.getcwd(),
+            'C:\\Windows\\Minidump',
+            # https://learn.microsoft.com/en-us/windows/win32/wer/collecting-user-mode-dumps
+            cls.expand_envs('%LOCALAPPDATA%\\CrashDumps'),
+            cls.expand_envs('%SystemRoot%\\Minidump'),
+        ]
+
+        dirs = [os.path.abspath(d) for d in dirs]
+        return dirs
+    
+    @classmethod
     def get_dump_pattern(cls) -> str:
         """
         Get file pattern to find dump files
         """
-        #return "*.dmp"
-        return "*"
+        return "*.dmp"
+        #return "*"
 
     @classmethod
     def list_registry(cls, path: str):

@@ -83,6 +83,13 @@ class Runner(abc.ABC):
         """
         pass
 
+    @classmethod
+    def list_dump_dirs(cls) -> List[str]:
+        """
+        List directories where dump file is potentially stored.
+        """
+        return [cls.get_dump_dir()]
+    
     @abc.abstractmethod
     def get_dump_path(self) -> str:
         """
@@ -182,6 +189,17 @@ class Runner(abc.ABC):
                 dump_pat = os.path.join(dump_dir, pat)
                 files = glob.glob(dump_pat)
                 self.err(f'ls {dump_pat}: ' + '  '.join(files[:20]))
+                if not files:
+                    self.info("No dump file found")
+                    self.info("Listing contents of common dump directories:")
+                    dirs = self.list_dump_dirs()
+                    for dir in dirs:
+                        dump_pat = os.path.join(dir, pat)
+                        try:
+                            files = glob.glob(dump_pat)
+                        except:
+                            files = ['<dir not found>']
+                        self.err(f'ls {dump_pat}: ' + '  '.join(files[:20]))
             else:
                 self.info(f'crash dump found: {self.get_dump_path()}')
                 time.sleep(5)
