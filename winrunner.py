@@ -135,6 +135,26 @@ class WinRunner(Runner):
         return "*"
 
     @classmethod
+    def list_registry(cls, path: str):
+        HKLM = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
+        cls.info(f'Dumping reistry "HKLM\\{path}":')
+        try:
+            key = winreg.OpenKey(HKLM, path)
+        except OSError as e:
+            cls.info("  Not found.")
+            return
+        
+        try:
+            val = winreg.QueryValue(key, None)
+            cls.info(f' - "root": "{val}"')
+            for i in range(20):
+                name, val, type = winreg.EnumValue(key, i)
+                cls.info(f' - "{name}": "{val}" [type={type}]')
+        except OSError as e:
+            pass
+        winreg.CloseKey(key)
+
+    @classmethod
     def install(cls):
         """Requires administrator privilege to write to registry"""
         # For top level overview on user mode exception handling:
@@ -144,17 +164,22 @@ class WinRunner(Runner):
         # https://learn.microsoft.com/en-us/windows/win32/debug/configuring-automatic-debugging
 
         HKLM = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
-        cls.info(f'Disabling AeDebug')
+        AEDEBUG_PATH = r'SOFTWARE\Microsoft\Windows NT\CurrentVersion\AeDebug'
+        cls.list_registry(AEDEBUG_PATH)
         try:
-            key = winreg.OpenKey(HKLM, r'SOFTWARE\Microsoft\Windows NT\CurrentVersion\AeDebug')
+            key = winreg.OpenKey(HKLM, AEDEBUG_PATH, access=winreg.KEY_ALL_ACCESS)
             try:
                 val, _ = winreg.QueryValueEx(key, 'Debugger')
                 if val != '-':
-                    cls.info(f'  Debugger was "{val}"')
-                    winreg.DeleteValue(key, "Debugger")
-            except:
-                pass
-            winreg.CloseKey(key)
+                    cls.info(f'Disabling Debugger')
+                    winreg.SetValueEx(key, "Debugger", 0, winreg.REG_SZ, "-")
+                    winreg.CloseKey(key)
+                    key = None
+                    cls.list_registry(AEDEBUG_PATH)
+            except OSError as e:
+                cls.info(f'  Exception: {e}')
+            if key is not None:
+                winreg.CloseKey(key)
         except Exception as e:
             cls.info(f'  Caught exception: {e}')
 
@@ -168,8 +193,9 @@ class WinRunner(Runner):
             pass
 
         LD = r'SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps'
+        cls.list_registry(LD)
         try:
-            ld = winreg.OpenKey(HKLM, LD)
+            ld = winreg.OpenKey(HKLM, LD, access=winreg.KEY_ALL_ACCESS)
         except OSError as e:
             ld = winreg.CreateKey(HKLM, LD)
             cls.info(f'Registry "LocalDumps" key created')
@@ -189,9 +215,6 @@ class WinRunner(Runner):
                 winreg.SetValueEx(ld, 'DumpFolder', None, winreg.REG_EXPAND_SZ, DUMP_FOLDER)
                 #cls.info(f'Registry "DumpFolder" set to {DUMP_FOLDER}')
 
-            val, _ = winreg.QueryValueEx(ld, 'DumpFolder')
-            cls.info(f'Registry "DumpFolder" is "{val}"')
-
         try:
             val, type = winreg.QueryValueEx(ld, 'DumpType')
         except OSError as e:
@@ -201,10 +224,9 @@ class WinRunner(Runner):
             winreg.SetValueEx(ld, 'DumpType', None, winreg.REG_DWORD, MINIDUMP)
             #cls.info(f'Registry "DumpType" set to {MINIDUMP}')
 
-        val, _ = winreg.QueryValueEx(ld, 'DumpType')
-        cls.info(f'Registry "DumpType" is {val}')
         winreg.CloseKey(ld)
-
+        cls.list_registry(LD)
+        
         # Check cdb.exe and install if necessary
         errors = []
         cdb_exe = cls.find_cdb()
