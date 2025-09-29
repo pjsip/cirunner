@@ -104,24 +104,25 @@ class WinRunner(Runner):
         return None
 
     @classmethod
+    def expand_envs(cls, path: str) -> str:
+        pat = r'%([a-zA-Z0-9_]+)%'
+        while True:
+            m = re.search(pat, path, re.I)
+            if m is None:
+                break
+            path = path.replace(f'%{m[1]}%', os.environ[m[1].upper()] )
+        return path
+
+    @classmethod
     def get_dump_dir(cls) -> str:
         """Get the actual path of the dump directory that is installed in the registry"""
-        def expand_envs(path: str) -> str:
-            pat = r'%([a-zA-Z0-9_]+)%'
-            while True:
-                m = re.search(pat, path, re.I)
-                if m is None:
-                    break
-                path = path.replace(f'%{m[1]}%', os.environ[m[1].upper()] )
-            return path
-
         if not cls.dump_path:
             HKLM = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
             LD = r'SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps'
             ld = winreg.OpenKey(HKLM, LD)
             path, _ = winreg.QueryValueEx(ld, 'DumpFolder')
             winreg.CloseKey(ld)
-            cls.dump_path = expand_envs(path)
+            cls.dump_path = cls.expand_envs(path)
             cls.info(f'Dump dir is "{cls.dump_path}"')
 
         return cls.dump_path
@@ -137,7 +138,7 @@ class WinRunner(Runner):
     @classmethod
     def list_registry(cls, path: str):
         HKLM = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
-        cls.info(f'Dumping reistry "HKLM\\{path}":')
+        cls.info(f'Dumping registry "HKLM\\{path}":')
         try:
             key = winreg.OpenKey(HKLM, path)
         except OSError as e:
@@ -170,7 +171,7 @@ class WinRunner(Runner):
             key = winreg.OpenKey(HKLM, AEDEBUG_PATH, access=winreg.KEY_ALL_ACCESS)
             try:
                 val, _ = winreg.QueryValueEx(key, 'Debugger')
-                if val != '-':
+                if val and val != '-':
                     cls.info(f'Disabling Debugger')
                     winreg.SetValueEx(key, "Debugger", 0, winreg.REG_SZ, "-")
                     winreg.CloseKey(key)
@@ -185,15 +186,16 @@ class WinRunner(Runner):
 
         # Setup registry to tell Windows to create minidump on app crash.
         # https://learn.microsoft.com/en-us/windows/win32/wer/collecting-user-mode-dumps
-        
+
+        LD = r'SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps'
+        cls.list_registry(LD)
+
         dump_dir = None
         try:
             dump_dir = cls.get_dump_dir()
         except OSError as e:
             pass
 
-        LD = r'SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps'
-        cls.list_registry(LD)
         try:
             ld = winreg.OpenKey(HKLM, LD, access=winreg.KEY_ALL_ACCESS)
         except OSError as e:
@@ -201,19 +203,14 @@ class WinRunner(Runner):
             cls.info(f'Registry "LocalDumps" key created')
         
         if not dump_dir:
-            dump_dir = cls.get_dump_dir()
+            DUMP_FOLDER = '%userprofile%\Dumps'
+            cls.info(f'Setting DumpFolder')
+            dump_dir = cls.expand_envs(DUMP_FOLDER)
             if not os.path.exists(dump_dir):
                 os.makedirs(dump_dir)
                 cls.info(f'Directory {dump_dir} created')
-
-            DUMP_FOLDER = '%userprofile%\Dumps'
-            try:
-                val, type = winreg.QueryValueEx(ld, 'DumpFolder')
-            except OSError as e:
-                val, type = '', None
-            if val.lower() != DUMP_FOLDER.lower() or type != winreg.REG_EXPAND_SZ:
-                winreg.SetValueEx(ld, 'DumpFolder', None, winreg.REG_EXPAND_SZ, DUMP_FOLDER)
-                #cls.info(f'Registry "DumpFolder" set to {DUMP_FOLDER}')
+            
+            winreg.SetValueEx(ld, 'DumpFolder', None, winreg.REG_EXPAND_SZ, DUMP_FOLDER)
 
         try:
             val, type = winreg.QueryValueEx(ld, 'DumpType')
@@ -221,12 +218,12 @@ class WinRunner(Runner):
             val, type = -1, None
         MINIDUMP = 1
         if val!=MINIDUMP or type!=winreg.REG_DWORD:
+            cls.info(f'Setting Registry "DumpType" set to {MINIDUMP}')
             winreg.SetValueEx(ld, 'DumpType', None, winreg.REG_DWORD, MINIDUMP)
-            #cls.info(f'Registry "DumpType" set to {MINIDUMP}')
 
         winreg.CloseKey(ld)
         cls.list_registry(LD)
-        
+
         # Check cdb.exe and install if necessary
         errors = []
         cdb_exe = cls.find_cdb()
