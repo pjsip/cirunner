@@ -1,6 +1,7 @@
 name: Windows Demo
 on:
-  push
+  push:
+  workflow_dispatch:
 jobs:
   success-case:
     runs-on: windows-latest

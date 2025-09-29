@@ -1,6 +1,8 @@
 import datetime
 import glob
 import os
+import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -17,6 +19,7 @@ class WinRunner(Runner):
     """
     Windows runner
     """
+    dump_path: str = None
 
     def __init__(self, path: str, args: List[str], **kwargs):
         super().__init__(path, args, **kwargs)
@@ -29,6 +32,38 @@ class WinRunner(Runner):
         if not self.procdump_exe:
             raise Exception('Could not find procdump.exe')
         self.procdump_exe = os.path.abspath(self.procdump_exe)
+
+    @classmethod
+    def search_cdb(cls, start_dir: str, filter_machine_type = False) -> List[str]:
+        """
+        Find cdb.exe suitable for current platform
+        """
+        results = []
+        ndirs = 0
+
+        if filter_machine_type:
+            machine_type = platform.machine()
+            if machine_type == 'AMD64' or machine_type == 'x86_64':
+                machine_type = 'x64'
+            else:
+                machine_type = 'x86'
+
+        for root, dirs, files in os.walk(start_dir):
+            cdbs = [os.path.join(root, f) for f in files
+                    if 'cdb'==f.lower()[:3] and '.exe'==f.lower()[-4:]
+                    ]
+            if filter_machine_type:
+                cdbs = [path for path in cdbs
+                        if machine_type in path.lower()
+                        ]
+            for path in cdbs:
+                print(path)
+            results += cdbs
+            ndirs += 1
+
+        #print(f'Walked {ndirs} directories and found {len(results)} result(s)')
+        return results
+
 
     @classmethod
     def find_cdb(cls) -> str:
@@ -46,6 +81,7 @@ class WinRunner(Runner):
         for path in CDB_PATHS:
             if os.path.exists(path):
                 return path
+            
         return None
 
     @classmethod
@@ -68,48 +104,130 @@ class WinRunner(Runner):
         return None
 
     @classmethod
+    def expand_envs(cls, path: str) -> str:
+        pat = r'%([a-zA-Z0-9_]+)%'
+        while True:
+            m = re.search(pat, path, re.I)
+            if m is None:
+                break
+            path = path.replace(f'%{m[1]}%', os.environ[m[1].upper()] )
+        return path
+
+    @classmethod
     def get_dump_dir(cls) -> str:
         """Get the actual path of the dump directory that is installed in the registry"""
-        home = os.environ['userprofile']
-        return os.path.abspath( os.path.join(home, 'Dumps') )
+        if not cls.dump_path:
+            HKLM = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
+            LD = r'SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps'
+            ld = winreg.OpenKey(HKLM, LD)
+            path, _ = winreg.QueryValueEx(ld, 'DumpFolder')
+            winreg.CloseKey(ld)
+            cls.dump_path = cls.expand_envs(path)
+            cls.info(f'Dump dir is "{cls.dump_path}"')
 
+        return cls.dump_path
+
+    @classmethod
+    def list_dump_dirs(cls) -> List[str]:
+        """
+        List directories where dump file is potentially stored.
+        """
+        dirs = [
+            cls.get_dump_dir(),
+            os.getcwd(),
+            'C:\\Windows\\Minidump',
+            # https://learn.microsoft.com/en-us/windows/win32/wer/collecting-user-mode-dumps
+            cls.expand_envs('%LOCALAPPDATA%\\CrashDumps'),
+            cls.expand_envs('%SystemRoot%\\Minidump'),
+        ]
+
+        dirs = [os.path.abspath(d) for d in dirs]
+        return dirs
+    
     @classmethod
     def get_dump_pattern(cls) -> str:
         """
         Get file pattern to find dump files
         """
         return "*.dmp"
+        #return "*"
+
+    @classmethod
+    def list_registry(cls, path: str):
+        HKLM = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
+        cls.info(f'Dumping registry "HKLM\\{path}":')
+        try:
+            key = winreg.OpenKey(HKLM, path)
+        except OSError as e:
+            cls.info("  Not found.")
+            return
+        
+        try:
+            val = winreg.QueryValue(key, None)
+            cls.info(f' - "root": "{val}"')
+            for i in range(20):
+                name, val, type = winreg.EnumValue(key, i)
+                cls.info(f' - "{name}": "{val}" [type={type}]')
+        except OSError as e:
+            pass
+        winreg.CloseKey(key)
 
     @classmethod
     def install(cls):
         """Requires administrator privilege to write to registry"""
-        
+        # For top level overview on user mode exception handling:
+        # https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/enabling-postmortem-debugging
 
-        #
+        # Disable automatic debugging (otherwise crash dump will not be created)
+        # https://learn.microsoft.com/en-us/windows/win32/debug/configuring-automatic-debugging
+
+        HKLM = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
+        AEDEBUG_PATH = r'SOFTWARE\Microsoft\Windows NT\CurrentVersion\AeDebug'
+        cls.list_registry(AEDEBUG_PATH)
+        try:
+            key = winreg.OpenKey(HKLM, AEDEBUG_PATH, access=winreg.KEY_ALL_ACCESS)
+            try:
+                val, _ = winreg.QueryValueEx(key, 'Debugger')
+                if val and val != '-':
+                    cls.info(f'Disabling Debugger')
+                    winreg.SetValueEx(key, "Debugger", 0, winreg.REG_SZ, "-")
+                    winreg.CloseKey(key)
+                    key = None
+                    cls.list_registry(AEDEBUG_PATH)
+            except OSError as e:
+                cls.info(f'  Exception: {e}')
+            if key is not None:
+                winreg.CloseKey(key)
+        except Exception as e:
+            cls.info(f'  Caught exception: {e}')
+
         # Setup registry to tell Windows to create minidump on app crash.
         # https://learn.microsoft.com/en-us/windows/win32/wer/collecting-user-mode-dumps
-        #
-        HKLM = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
+
         LD = r'SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps'
+        cls.list_registry(LD)
+
+        dump_dir = None
         try:
-            ld = winreg.OpenKey(HKLM, LD)
+            dump_dir = cls.get_dump_dir()
+        except OSError as e:
+            pass
+
+        try:
+            ld = winreg.OpenKey(HKLM, LD, access=winreg.KEY_ALL_ACCESS)
         except OSError as e:
             ld = winreg.CreateKey(HKLM, LD)
             cls.info(f'Registry "LocalDumps" key created')
         
-        dump_dir = cls.get_dump_dir()
-        if not os.path.exists(dump_dir):
-            os.makedirs(dump_dir)
-            cls.info(f'Directory {dump_dir} created')
-
-        DUMP_FOLDER = '%userprofile%\Dumps'
-        try:
-            val, type = winreg.QueryValueEx(ld, 'DumpFolder')
-        except OSError as e:
-            val, type = '', None
-        if val.lower() != DUMP_FOLDER.lower() or type != winreg.REG_EXPAND_SZ:
+        if not dump_dir:
+            DUMP_FOLDER = '%userprofile%\Dumps'
+            cls.info(f'Setting DumpFolder')
+            dump_dir = cls.expand_envs(DUMP_FOLDER)
+            if not os.path.exists(dump_dir):
+                os.makedirs(dump_dir)
+                cls.info(f'Directory {dump_dir} created')
+            
             winreg.SetValueEx(ld, 'DumpFolder', None, winreg.REG_EXPAND_SZ, DUMP_FOLDER)
-            cls.info(f'Registry "DumpFolder" set to {DUMP_FOLDER}')
 
         try:
             val, type = winreg.QueryValueEx(ld, 'DumpType')
@@ -117,17 +235,24 @@ class WinRunner(Runner):
             val, type = -1, None
         MINIDUMP = 1
         if val!=MINIDUMP or type!=winreg.REG_DWORD:
+            cls.info(f'Setting Registry "DumpType" set to {MINIDUMP}')
             winreg.SetValueEx(ld, 'DumpType', None, winreg.REG_DWORD, MINIDUMP)
-            cls.info(f'Registry "DumpType" set to {MINIDUMP}')
 
         winreg.CloseKey(ld)
+        cls.list_registry(LD)
 
-        # Check cdb.exe and procdump.exe
+        # Check cdb.exe and install if necessary
         errors = []
         cdb_exe = cls.find_cdb()
         if not cdb_exe:
-            errors.append('cdb.exe not found')
+            cls.info('Installing cdb..')
+            os.system('choco install windows-sdk-10-version-2004-windbg --yes --no-progress')
 
+            cdb_exe = cls.find_cdb()
+            if not cdb_exe:
+                errors.append('cdb.exe not found')
+
+        # Check procdump
         procdump_exe = cls.find_procdump()
         if not procdump_exe:
             cls.info('Downloading procdump.zip..')

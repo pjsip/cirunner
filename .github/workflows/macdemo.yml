@@ -1,6 +1,7 @@
 name: Mac Demo
 on:
-  push
+  push:
+  workflow_dispatch:
 jobs:
   success-case:
     runs-on: macos-latest

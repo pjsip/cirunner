@@ -83,6 +83,13 @@ class Runner(abc.ABC):
         """
         pass
 
+    @classmethod
+    def list_dump_dirs(cls) -> List[str]:
+        """
+        List directories where dump file is potentially stored.
+        """
+        return [cls.get_dump_dir()]
+    
     @abc.abstractmethod
     def get_dump_path(self) -> str:
         """
@@ -170,7 +177,7 @@ class Runner(abc.ABC):
 
         if self.popen.returncode != 0:
             self.info(f'exit code {self.popen.returncode}, waiting until crash dump is written')
-            for _ in range(30):
+            for _ in range(120):
                 if self.detect_crash():
                     break
                 time.sleep(1)
@@ -179,8 +186,20 @@ class Runner(abc.ABC):
                 self.err('ERROR: UNABLE TO FIND CRASH DUMP FILE!')
                 dump_dir = self.get_dump_dir()
                 pat = self.get_dump_pattern()
-                files = glob.glob(os.path.join(dump_dir, pat))
-                self.err(f'ls {dump_dir}/{pat}: ' + '  '.join(files[:20]))
+                dump_pat = os.path.join(dump_dir, pat)
+                files = glob.glob(dump_pat)
+                self.err(f'ls {dump_pat}: ' + '  '.join(files[:20]))
+                if not files:
+                    self.info("No dump file found")
+                    self.info("Listing contents of common dump directories:")
+                    dirs = self.list_dump_dirs()
+                    for dir in dirs:
+                        dump_pat = os.path.join(dir, pat)
+                        try:
+                            files = glob.glob(dump_pat)
+                        except:
+                            files = ['<dir not found>']
+                        self.err(f'ls {dump_pat}: ' + '  '.join(files[:20]))
             else:
                 self.info(f'crash dump found: {self.get_dump_path()}')
                 time.sleep(5)
