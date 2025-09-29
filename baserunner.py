@@ -170,17 +170,18 @@ class Runner(abc.ABC):
 
         if self.popen.returncode != 0:
             self.info(f'exit code {self.popen.returncode}, waiting until crash dump is written')
-            for _ in range(30):
+            for _ in range(120):
                 if self.detect_crash():
                     break
-                time.sleep(1)
+                time.sleep(5)
 
             if not self.detect_crash():
                 self.err('ERROR: UNABLE TO FIND CRASH DUMP FILE!')
                 dump_dir = self.get_dump_dir()
                 pat = self.get_dump_pattern()
-                files = glob.glob(os.path.join(dump_dir, pat))
-                self.err(f'ls {dump_dir}/{pat}: ' + '  '.join(files[:20]))
+                dump_pat = os.path.join(dump_dir, pat)
+                files = glob.glob(dump_pat)
+                self.err(f'ls {dump_pat}: ' + '  '.join(files[:20]))
             else:
                 self.info(f'crash dump found: {self.get_dump_path()}')
                 time.sleep(5)

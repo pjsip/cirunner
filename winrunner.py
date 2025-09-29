@@ -117,13 +117,29 @@ class WinRunner(Runner):
     @classmethod
     def install(cls):
         """Requires administrator privilege to write to registry"""
-        
+        # For top level overview on user mode exception handling:
+        # https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/enabling-postmortem-debugging
 
-        #
+        # Disable automatic debugging (otherwise crash dump will not be created)
+        # https://learn.microsoft.com/en-us/windows/win32/debug/configuring-automatic-debugging
+
+        HKLM = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
+        cls.info(f'Disabling AeDebug')
+        try:
+            key = winreg.OpenKey(HKLM, r'SOFTWARE\Microsoft\Windows NT\CurrentVersion\AeDebug')
+            try:
+                val, _ = winreg.QueryValueEx(key, 'Debugger')
+                cls.info(f'  Debugger was "{val}"')
+                winreg.DeleteValue(key, "Debugger")
+            except:
+                pass
+            winreg.CloseKey(key)
+        except Exception as e:
+            cls.info(f'  Caught exception: {e}')
+
         # Setup registry to tell Windows to create minidump on app crash.
         # https://learn.microsoft.com/en-us/windows/win32/wer/collecting-user-mode-dumps
-        #
-        HKLM = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
+        
         LD = r'SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps'
         try:
             ld = winreg.OpenKey(HKLM, LD)
