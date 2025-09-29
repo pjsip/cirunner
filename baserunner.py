@@ -173,7 +173,7 @@ class Runner(abc.ABC):
             for _ in range(120):
                 if self.detect_crash():
                     break
-                time.sleep(5)
+                time.sleep(1)
 
             if not self.detect_crash():
                 self.err('ERROR: UNABLE TO FIND CRASH DUMP FILE!')

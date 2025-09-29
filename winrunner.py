@@ -2,6 +2,7 @@ import datetime
 import glob
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -18,6 +19,7 @@ class WinRunner(Runner):
     """
     Windows runner
     """
+    dump_path: str = None
 
     def __init__(self, path: str, args: List[str], **kwargs):
         super().__init__(path, args, **kwargs)
@@ -104,8 +106,25 @@ class WinRunner(Runner):
     @classmethod
     def get_dump_dir(cls) -> str:
         """Get the actual path of the dump directory that is installed in the registry"""
-        home = os.environ['userprofile']
-        return os.path.abspath( os.path.join(home, 'Dumps') )
+        def expand_envs(path: str) -> str:
+            pat = r'%([a-zA-Z0-9_]+)%'
+            while True:
+                m = re.search(pat, path, re.I)
+                if m is None:
+                    break
+                path = path.replace(f'%{m[1]}%', os.environ[m[1].upper()] )
+            return path
+
+        if not cls.dump_path:
+            HKLM = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
+            LD = r'SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps'
+            ld = winreg.OpenKey(HKLM, LD)
+            path, _ = winreg.QueryValueEx(ld, 'DumpFolder')
+            winreg.CloseKey(ld)
+            cls.dump_path = expand_envs(path)
+            cls.info(f'Dump dir is "{cls.dump_path}"')
+
+        return cls.dump_path
 
     @classmethod
     def get_dump_pattern(cls) -> str:
@@ -129,8 +148,9 @@ class WinRunner(Runner):
             key = winreg.OpenKey(HKLM, r'SOFTWARE\Microsoft\Windows NT\CurrentVersion\AeDebug')
             try:
                 val, _ = winreg.QueryValueEx(key, 'Debugger')
-                cls.info(f'  Debugger was "{val}"')
-                winreg.DeleteValue(key, "Debugger")
+                if val != '-':
+                    cls.info(f'  Debugger was "{val}"')
+                    winreg.DeleteValue(key, "Debugger")
             except:
                 pass
             winreg.CloseKey(key)
@@ -140,6 +160,12 @@ class WinRunner(Runner):
         # Setup registry to tell Windows to create minidump on app crash.
         # https://learn.microsoft.com/en-us/windows/win32/wer/collecting-user-mode-dumps
         
+        dump_dir = None
+        try:
+            dump_dir = cls.get_dump_dir()
+        except OSError as e:
+            pass
+
         LD = r'SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps'
         try:
             ld = winreg.OpenKey(HKLM, LD)
@@ -147,22 +173,23 @@ class WinRunner(Runner):
             ld = winreg.CreateKey(HKLM, LD)
             cls.info(f'Registry "LocalDumps" key created')
         
-        dump_dir = cls.get_dump_dir()
-        if not os.path.exists(dump_dir):
-            os.makedirs(dump_dir)
-            cls.info(f'Directory {dump_dir} created')
+        if not dump_dir:
+            dump_dir = cls.get_dump_dir()
+            if not os.path.exists(dump_dir):
+                os.makedirs(dump_dir)
+                cls.info(f'Directory {dump_dir} created')
 
-        DUMP_FOLDER = '%userprofile%\Dumps'
-        try:
-            val, type = winreg.QueryValueEx(ld, 'DumpFolder')
-        except OSError as e:
-            val, type = '', None
-        if val.lower() != DUMP_FOLDER.lower() or type != winreg.REG_EXPAND_SZ:
-            winreg.SetValueEx(ld, 'DumpFolder', None, winreg.REG_EXPAND_SZ, DUMP_FOLDER)
-            #cls.info(f'Registry "DumpFolder" set to {DUMP_FOLDER}')
+            DUMP_FOLDER = '%userprofile%\Dumps'
+            try:
+                val, type = winreg.QueryValueEx(ld, 'DumpFolder')
+            except OSError as e:
+                val, type = '', None
+            if val.lower() != DUMP_FOLDER.lower() or type != winreg.REG_EXPAND_SZ:
+                winreg.SetValueEx(ld, 'DumpFolder', None, winreg.REG_EXPAND_SZ, DUMP_FOLDER)
+                #cls.info(f'Registry "DumpFolder" set to {DUMP_FOLDER}')
 
-        val, _ = winreg.QueryValueEx(ld, 'DumpFolder')
-        cls.info(f'Registry "DumpFolder" is "{val}"')
+            val, _ = winreg.QueryValueEx(ld, 'DumpFolder')
+            cls.info(f'Registry "DumpFolder" is "{val}"')
 
         try:
             val, type = winreg.QueryValueEx(ld, 'DumpType')
