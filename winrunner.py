@@ -131,7 +131,8 @@ class WinRunner(Runner):
         """
         Get file pattern to find dump files
         """
-        return "*.dmp"
+        #return "*.dmp"
+        return "*"
 
     @classmethod
     def install(cls):
